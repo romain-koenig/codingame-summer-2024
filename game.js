@@ -1,7 +1,93 @@
 const playerIdx = parseInt(readline());
 const nbGames = parseInt(readline());
 const TRACK_LENGTH = 30;
-const SIMULATION_DEPTH = 5;
+
+// Function to simulate the movement
+const simulateMove = (position, track, move) => {
+	let newPos = position;
+	switch (move) {
+		case 'RIGHT':
+			if (position + 3 < TRACK_LENGTH && track[position + 1] !== '#' && track[position + 2] !== '#' && track[position + 3] !== '#') {
+				newPos += 3;
+			} else {
+				return null;
+			}
+			break;
+		case 'DOWN':
+			if (position + 2 < TRACK_LENGTH && track[position + 1] !== '#' && track[position + 2] !== '#') {
+				newPos += 2;
+			} else {
+				return null;
+			}
+			break;
+		case 'LEFT':
+			if (position + 1 < TRACK_LENGTH && track[position + 1] !== '#') {
+				newPos += 1;
+			} else {
+				return null;
+			}
+			break;
+		case 'UP':
+			if (position + 2 < TRACK_LENGTH && track[position + 1] === '#') {
+				newPos += 2;
+			} else {
+				return null;
+			}
+			break;
+	}
+	return newPos;
+};
+
+// Function to determine the best move
+const determineBestMove = (position, track, stun) => {
+	if (stun > 0) {
+		return 'LEFT'; // If stunned, no move is effective
+	}
+
+	const moves = ['RIGHT', 'DOWN', 'LEFT', 'UP'];
+	let bestMove = 'LEFT';
+	let bestPos = position;
+
+	moves.forEach(move => {
+		const newPos = simulateMove(position, track, move);
+		if (newPos !== null && newPos > bestPos) {
+			bestPos = newPos;
+			bestMove = move;
+		}
+	});
+
+	return bestMove;
+};
+
+// Find the game with the fewest hurdles
+const findGameWithFewestHurdles = (tracks) => {
+	let minHurdles = Infinity;
+	let chosenGame = 0;
+	for (let i = 0; i < tracks.length; i++) {
+		let hurdleCount = (tracks[i].match(/#/g) || []).length;
+		if (hurdleCount < minHurdles) {
+			minHurdles = hurdleCount;
+			chosenGame = i;
+		}
+	}
+	return chosenGame;
+};
+
+// Find the game where we are most advanced
+const findMostAdvancedGame = (positions, tracks) => {
+	let maxPosition = -1;
+	let chosenGame = 0;
+	for (let i = 0; i < positions.length; i++) {
+		if (tracks[i] !== 'GAME_OVER' && positions[i] > maxPosition) {
+			maxPosition = positions[i];
+			chosenGame = i;
+		}
+	}
+	return chosenGame;
+};
+
+// Main game loop
+let focusGame = -1; // No focus game initially
 
 while (true) {
 	// Read and ignore the score info
@@ -13,6 +99,7 @@ while (true) {
 	let positions = [];
 	let stuns = [];
 	let tracks = [];
+	let games = [];
 
 	// Read game states for all mini-games
 	for (let i = 0; i < nbGames; i++) {
@@ -41,87 +128,33 @@ while (true) {
 		positions.push(position);
 		stuns.push(stunCount);
 		tracks.push(gpu);
+		games.push({ gpu, position, stunCount });
 	}
 
-	// Function to simulate the movement
-	const simulateMove = (position, track, move) => {
-		let newPos = position;
-		let score = 0;
-		switch (move) {
-			case 'RIGHT':
-				if (position + 3 < TRACK_LENGTH && track[position + 1] !== '#' && track[position + 2] !== '#' && track[position + 3] !== '#') {
-					newPos += 3;
-					score = 3;
-				} else {
-					score = -1;
-				}
-				break;
-			case 'DOWN':
-				if (position + 2 < TRACK_LENGTH && track[position + 1] !== '#' && track[position + 2] !== '#') {
-					newPos += 2;
-					score = 2;
-				} else {
-					score = -1;
-				}
-				break;
-			case 'LEFT':
-				if (position + 1 < TRACK_LENGTH && track[position + 1] !== '#') {
-					newPos += 1;
-					score = 1;
-				} else {
-					score = -1;
-				}
-				break;
-			case 'UP':
-				if (position + 2 < TRACK_LENGTH && track[position + 1] === '#') {
-					newPos += 2;
-					score = 2;
-				} else {
-					score = -1;
-				}
-				break;
+	// Check if we are in a reset turn
+	let resetTurn = tracks.every(track => track === 'GAME_OVER');
+	if (resetTurn) {
+		focusGame = -1; // Reset focus game
+	}
+
+	if (focusGame === -1) {
+		// Find the game with the fewest hurdles to start
+		focusGame = findGameWithFewestHurdles(tracks);
+	} else {
+		// Check if the current focused game is finished
+		if (tracks[focusGame] === 'GAME_OVER') {
+			// Find the game with the fewest hurdles where we can still compete
+			let minHurdlesGame = findGameWithFewestHurdles(tracks);
+			if (tracks[minHurdlesGame] === 'GAME_OVER') {
+				// If all games with fewer hurdles are finished, focus on the most advanced game
+				focusGame = findMostAdvancedGame(positions, tracks);
+			} else {
+				focusGame = minHurdlesGame;
+			}
 		}
-		return { newPos, score };
-	};
+	}
 
-	// Simulate and evaluate future positions
-	const evaluateMoves = (positions, stuns, tracks) => {
-		const moves = ['LEFT', 'DOWN', 'RIGHT', 'UP'];
-		let bestMove = 'LEFT';
-		let bestScore = -Infinity;
-
-		moves.forEach(move => {
-			let totalScore = 0;
-			for (let i = 0; i < nbGames; i++) {
-				if (stuns[i] > 0) {
-					continue; // Skip if stunned
-				}
-				let { newPos, score } = simulateMove(positions[i], tracks[i], move);
-				if (score >= 0) {
-					// Further simulate for additional depth
-					for (let depth = 1; depth < SIMULATION_DEPTH; depth++) {
-						let futureMove = moves[Math.floor(Math.random() * moves.length)];
-						let futureResult = simulateMove(newPos, tracks[i], futureMove);
-						if (futureResult.score >= 0) {
-							newPos = futureResult.newPos;
-							score += futureResult.score;
-						} else {
-							break;
-						}
-					}
-					totalScore += score;
-				}
-			}
-			if (totalScore > bestScore) {
-				bestScore = totalScore;
-				bestMove = move;
-			}
-		});
-		return bestMove;
-	};
-
-	// Choose the best move based on simulation
-	let bestMove = evaluateMoves(positions, stuns, tracks);
-
+	// Determine the best move for the focus game
+	let bestMove = determineBestMove(positions[focusGame], tracks[focusGame], stuns[focusGame]);
 	console.log(bestMove);
 }
