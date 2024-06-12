@@ -1,5 +1,7 @@
 const playerIdx = parseInt(readline());
 const nbGames = parseInt(readline());
+const TRACK_LENGTH = 30;
+const SIMULATION_DEPTH = 5;
 
 while (true) {
 	// Read and ignore the score info
@@ -41,49 +43,85 @@ while (true) {
 		tracks.push(gpu);
 	}
 
-	// Determine the best move for each game
-	let moveScores = { LEFT: 0, DOWN: 0, RIGHT: 0, UP: 0 };
+	// Function to simulate the movement
+	const simulateMove = (position, track, move) => {
+		let newPos = position;
+		let score = 0;
+		switch (move) {
+			case 'RIGHT':
+				if (position + 3 < TRACK_LENGTH && track[position + 1] !== '#' && track[position + 2] !== '#' && track[position + 3] !== '#') {
+					newPos += 3;
+					score = 3;
+				} else {
+					score = -1;
+				}
+				break;
+			case 'DOWN':
+				if (position + 2 < TRACK_LENGTH && track[position + 1] !== '#' && track[position + 2] !== '#') {
+					newPos += 2;
+					score = 2;
+				} else {
+					score = -1;
+				}
+				break;
+			case 'LEFT':
+				if (position + 1 < TRACK_LENGTH && track[position + 1] !== '#') {
+					newPos += 1;
+					score = 1;
+				} else {
+					score = -1;
+				}
+				break;
+			case 'UP':
+				if (position + 2 < TRACK_LENGTH && track[position + 1] === '#') {
+					newPos += 2;
+					score = 2;
+				} else {
+					score = -1;
+				}
+				break;
+		}
+		return { newPos, score };
+	};
 
-	for (let i = 0; i < nbGames; i++) {
-		const position = positions[i];
-		const stunCount = stuns[i];
-		const track = tracks[i];
+	// Simulate and evaluate future positions
+	const evaluateMoves = (positions, stuns, tracks) => {
+		const moves = ['LEFT', 'DOWN', 'RIGHT', 'UP'];
+		let bestMove = 'LEFT';
+		let bestScore = -Infinity;
 
-		if (stunCount > 0) {
-			moveScores['LEFT']++;
-			continue;
-		}
+		moves.forEach(move => {
+			let totalScore = 0;
+			for (let i = 0; i < nbGames; i++) {
+				if (stuns[i] > 0) {
+					continue; // Skip if stunned
+				}
+				let { newPos, score } = simulateMove(positions[i], tracks[i], move);
+				if (score >= 0) {
+					// Further simulate for additional depth
+					for (let depth = 1; depth < SIMULATION_DEPTH; depth++) {
+						let futureMove = moves[Math.floor(Math.random() * moves.length)];
+						let futureResult = simulateMove(newPos, tracks[i], futureMove);
+						if (futureResult.score >= 0) {
+							newPos = futureResult.newPos;
+							score += futureResult.score;
+						} else {
+							break;
+						}
+					}
+					totalScore += score;
+				}
+			}
+			if (totalScore > bestScore) {
+				bestScore = totalScore;
+				bestMove = move;
+			}
+		});
+		return bestMove;
+	};
 
-		const trackLength = track.length;
-		if (position + 3 < trackLength && track[position + 1] !== '#' && track[position + 2] !== '#' && track[position + 3] !== '#') {
-			moveScores['RIGHT'] += 3; // Prefer RIGHT if the next 3 steps are safe
-		}
-		if (position + 2 < trackLength && track[position + 1] !== '#' && track[position + 2] !== '#') {
-			moveScores['DOWN'] += 2; // Prefer DOWN if the next 2 steps are safe
-		}
-		if (position + 1 < trackLength && track[position + 1] !== '#') {
-			moveScores['LEFT'] += 1; // Prefer LEFT if the next step is safe
-		}
-		if (position + 1 < trackLength && track[position + 1] === '#') {
-			moveScores['UP'] += 2; // Prefer UP to jump over an immediate hurdle
-		}
-	}
-
-	// Determine the best move based on the highest score
-	let bestMove = 'LEFT';
-	let maxScore = moveScores['LEFT'];
-	if (moveScores['RIGHT'] > maxScore) {
-		bestMove = 'RIGHT';
-		maxScore = moveScores['RIGHT'];
-	}
-	if (moveScores['DOWN'] > maxScore) {
-		bestMove = 'DOWN';
-		maxScore = moveScores['DOWN'];
-	}
-	if (moveScores['UP'] > maxScore) {
-		bestMove = 'UP';
-		maxScore = moveScores['UP'];
-	}
+	// Choose the best move based on simulation
+	let bestMove = evaluateMoves(positions, stuns, tracks);
 
 	console.log(bestMove);
 }
