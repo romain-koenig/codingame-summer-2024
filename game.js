@@ -86,8 +86,23 @@ const findMostAdvancedGame = (positions, tracks) => {
 	return chosenGame;
 };
 
+// Determine which game to focus on next based on medals
+const determineNextFocusGame = (medals) => {
+	let minPoints = Infinity;
+	let chosenGame = 0;
+	for (let i = 0; i < medals.length; i++) {
+		let points = medals[i].gold * 3 + medals[i].silver;
+		if (points < minPoints) {
+			minPoints = points;
+			chosenGame = i;
+		}
+	}
+	return chosenGame;
+};
+
 // Main game loop
 let focusGame = -1; // No focus game initially
+let medals = Array(nbGames).fill().map(() => ({ gold: 0, silver: 0, bronze: 0 }));
 
 while (true) {
 	// Read and ignore the score info
@@ -134,7 +149,7 @@ while (true) {
 	// Check if we are in a reset turn
 	let resetTurn = tracks.every(track => track === 'GAME_OVER');
 	if (resetTurn) {
-		focusGame = -1; // Reset focus game
+		focusGame = determineNextFocusGame(medals); // Determine the next focus game based on medals
 	}
 
 	if (focusGame === -1) {
@@ -143,18 +158,39 @@ while (true) {
 	} else {
 		// Check if the current focused game is finished
 		if (tracks[focusGame] === 'GAME_OVER') {
-			// Find the game with the fewest hurdles where we can still compete
-			let minHurdlesGame = findGameWithFewestHurdles(tracks);
-			if (tracks[minHurdlesGame] === 'GAME_OVER') {
-				// If all games with fewer hurdles are finished, focus on the most advanced game
-				focusGame = findMostAdvancedGame(positions, tracks);
+			// Update medals
+			let position = positions[focusGame];
+			let medal = medals[focusGame];
+			if (position >= TRACK_LENGTH) {
+				medal.gold++;
+			} else if (position >= TRACK_LENGTH - 1) {
+				medal.silver++;
 			} else {
-				focusGame = minHurdlesGame;
+				medal.bronze++;
 			}
+			medals[focusGame] = medal;
+
+			// Find the next focus game based on medals
+			focusGame = determineNextFocusGame(medals);
 		}
 	}
 
 	// Determine the best move for the focus game
 	let bestMove = determineBestMove(positions[focusGame], tracks[focusGame], stuns[focusGame]);
+
+	// If we have an advance, play conservatively
+	if (positions[focusGame] > Math.max(...positions.filter((_, idx) => idx !== focusGame)) + 3) {
+		// Check other games for possible jumps
+		for (let i = 0; i < nbGames; i++) {
+			if (i !== focusGame && tracks[i] !== 'GAME_OVER') {
+				let potentialMove = determineBestMove(positions[i], tracks[i], stuns[i]);
+				if (potentialMove === 'UP') {
+					bestMove = 'UP';
+					break;
+				}
+			}
+		}
+	}
+
 	console.log(bestMove);
 }
